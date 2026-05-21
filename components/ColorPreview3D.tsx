@@ -1,16 +1,35 @@
 "use client";
 
-import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, Environment } from "@react-three/drei";
-import { useRef } from "react";
-import type { Group } from "three";
+import { Canvas, useFrame, useLoader } from "@react-three/fiber";
+import { OrbitControls, Environment, Center } from "@react-three/drei";
+import { Suspense, useMemo, useRef } from "react";
+import type { BufferGeometry, Group } from "three";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
 type Props = {
   color: string;
 };
 
-function RobotJoint({ color }: Props) {
+const STL_URL = "/example.stl";
+
+function StlModel({ color }: Props) {
   const groupRef = useRef<Group>(null);
+  const geometry = useLoader(STLLoader, STL_URL) as BufferGeometry;
+
+  // STLLoader returns a fresh geometry; make sure normals exist for smooth lighting.
+  const prepared = useMemo(() => {
+    const g = geometry.clone();
+    g.center();
+    if (!g.attributes.normal) g.computeVertexNormals();
+    g.computeBoundingSphere();
+    return g;
+  }, [geometry]);
+
+  // Fit the model into a ~2-unit-tall view regardless of its native scale.
+  const fitScale = useMemo(() => {
+    const r = prepared.boundingSphere?.radius ?? 1;
+    return r > 0 ? 1.4 / r : 1;
+  }, [prepared]);
 
   useFrame((_, delta) => {
     if (groupRef.current) {
@@ -18,60 +37,17 @@ function RobotJoint({ color }: Props) {
     }
   });
 
-  // Shared material props — slightly metallic so the color reads on different lighting.
-  const matProps = {
-    color,
-    metalness: 0.35,
-    roughness: 0.45,
-  } as const;
-
   return (
-    <group ref={groupRef} position={[0, -0.1, 0]}>
-      {/* Lower arm segment */}
-      <mesh position={[0, -0.9, 0]} castShadow receiveShadow>
-        <boxGeometry args={[0.7, 1.4, 0.5]} />
-        <meshStandardMaterial {...matProps} />
-      </mesh>
-
-      {/* Lower yoke - left bracket */}
-      <mesh position={[-0.35, 0.1, 0]} castShadow receiveShadow>
-        <boxGeometry args={[0.18, 0.6, 0.6]} />
-        <meshStandardMaterial {...matProps} />
-      </mesh>
-      {/* Lower yoke - right bracket */}
-      <mesh position={[0.35, 0.1, 0]} castShadow receiveShadow>
-        <boxGeometry args={[0.18, 0.6, 0.6]} />
-        <meshStandardMaterial {...matProps} />
-      </mesh>
-
-      {/* Rotation pivot (horizontal cylinder) */}
+    <group ref={groupRef}>
       <mesh
-        position={[0, 0.3, 0]}
-        rotation={[0, 0, Math.PI / 2]}
+        geometry={prepared}
+        scale={fitScale}
+        rotation={[-Math.PI / 2, 0, 0]}
         castShadow
         receiveShadow
       >
-        <cylinderGeometry args={[0.22, 0.22, 1.1, 32]} />
-        <meshStandardMaterial {...matProps} />
+        <meshStandardMaterial color={color} metalness={0.35} roughness={0.45} />
       </mesh>
-
-      {/* Upper arm — angled slightly to look articulated */}
-      <group position={[0, 0.3, 0]} rotation={[0, 0, 0.35]}>
-        <mesh position={[0, 0.8, 0]} castShadow receiveShadow>
-          <boxGeometry args={[0.6, 1.4, 0.45]} />
-          <meshStandardMaterial {...matProps} />
-        </mesh>
-        {/* End cap / flange */}
-        <mesh
-          position={[0, 1.55, 0]}
-          rotation={[Math.PI / 2, 0, 0]}
-          castShadow
-          receiveShadow
-        >
-          <cylinderGeometry args={[0.32, 0.32, 0.18, 32]} />
-          <meshStandardMaterial {...matProps} />
-        </mesh>
-      </group>
     </group>
   );
 }
@@ -94,12 +70,16 @@ export default function ColorPreview3D({ color }: Props) {
       />
       <directionalLight position={[-3, 2, -2]} intensity={0.4} />
 
-      <RobotJoint color={color} />
+      <Suspense fallback={null}>
+        <Center disableY>
+          <StlModel color={color} />
+        </Center>
+      </Suspense>
 
       {/* Ground shadow catcher */}
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, -1.65, 0]}
+        position={[0, -1.1, 0]}
         receiveShadow
       >
         <planeGeometry args={[10, 10]} />
